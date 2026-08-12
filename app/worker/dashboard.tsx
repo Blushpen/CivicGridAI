@@ -5,56 +5,9 @@
  * Issue assignment, progress tracking, and resolution workflow
  */
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import type { Issue } from "@/lib/types";
-
-// Mock data generator for demo
-const generateMockAssignedIssues = (workerId: string, count: number): Issue[] => {
-  return Array.from({ length: count }, (_, i) => ({
-    id: `ISS-${String(1001 + i).padStart(4, "0")}`,
-    citizenId: `CIT-${String(100 + (i % 5)).padStart(3, "0")}`,
-    title: [
-      "Pothole on Main Street",
-      "Water leaking from pipe",
-      "Flooded intersection",
-      "Streetlight not working",
-      "Garbage pile near corner",
-    ][i % 5],
-    description:
-      "Issue reported by citizen and assigned for resolution. Please update status as work progresses.",
-    location: {
-      latitude: 40.7128 + Math.random() * 0.01,
-      longitude: -74.006 + Math.random() * 0.01,
-      address: "Sample Location",
-    },
-    status: ["Assigned", "In Progress", "Resolved"][i % 3] as any,
-    category: [
-      "Pothole",
-      "Water Leak",
-      "Flooding",
-      "Broken Streetlight",
-      "Garbage",
-    ][i % 5] as any,
-    severity: ["Low", "Medium", "High"][i % 3] as any,
-    evidence: [],
-    assignedTo: workerId,
-    classification: {
-      category: [
-        "Pothole",
-        "Water Leak",
-        "Flooding",
-        "Broken Streetlight",
-        "Garbage",
-      ][i % 5] as any,
-      severity: ["Low", "Medium", "High"][i % 3] as any,
-      confidence: 0.8 + Math.random() * 0.19,
-      department: ["Roads", "Water", "Electricity", "Sanitation"][i % 4] as any,
-      reason: "Issue classified and assigned for resolution",
-    },
-    createdAt: Date.now() - Math.random() * 86400000,
-    updatedAt: Date.now() - Math.random() * 43200000,
-  }));
-};
+import { demoWorkflowService } from "@/lib/services";
 
 interface WorkerDashboardProps {
   workerId?: string;
@@ -65,21 +18,11 @@ export function WorkerDashboard({
   workerId = "WRK-201", 
   onUpdateStatus 
 }: WorkerDashboardProps) {
-  const [issues, setIssues] = useState<Issue[]>([]);
+  const [issues, setIssues] = useState<Issue[]>(() => demoWorkflowService.getAssignedIssues(workerId));
   const [selectedIssue, setSelectedIssue] = useState<Issue | null>(null);
   const [filterStatus, setFilterStatus] = useState<string>("Assigned");
   const [notes, setNotes] = useState<Record<string, string>>({});
-  const [loading, setLoading] = useState(true);
-
-  // Initialize with mock data
-  useEffect(() => {
-    setLoading(true);
-    const timer = setTimeout(() => {
-      setIssues(generateMockAssignedIssues(workerId, 6));
-      setLoading(false);
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [workerId]);
+  const loading = false;
 
   const filteredIssues = issues.filter((issue) => {
     if (filterStatus === "all") return true;
@@ -88,11 +31,11 @@ export function WorkerDashboard({
 
   const handleStatusUpdate = (issueId: string, newStatus: string) => {
     onUpdateStatus?.(issueId, newStatus);
-    setIssues(
-      issues.map((issue) =>
-        issue.id === issueId ? { ...issue, status: newStatus as any } : issue
-      )
-    );
+    const updatedIssue = demoWorkflowService.updateIssueStatus(issueId, newStatus as Issue["status"]);
+    if (updatedIssue) {
+      setIssues(demoWorkflowService.getAssignedIssues(workerId));
+      setSelectedIssue(updatedIssue);
+    }
   };
 
   const handleAddNote = (issueId: string, note: string) => {

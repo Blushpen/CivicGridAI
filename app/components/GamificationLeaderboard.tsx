@@ -5,38 +5,9 @@
  * Displays citizen reputation, XP, badges, and leaderboard rankings
  */
 
-import React, { useState, useEffect } from "react";
+import React from "react";
 import type { GamificationProfile, LeaderboardEntry } from "@/lib/types";
-
-// Mock data generator for demo
-const generateMockProfiles = (count: number): GamificationProfile[] => {
-  return Array.from({ length: count }, (_, i) => ({
-    citizenId: `CIT-${String(100 + i).padStart(3, "0")}`,
-    reputation: Math.floor((count - i) * Math.random() * 100),
-    xp: Math.floor((count - i) * Math.random() * 500),
-    level: Math.floor((count - i) * Math.random() * 8),
-    badges: Array.from(
-      { length: Math.floor(Math.random() * 4) },
-      (_, j) => ({
-        id: `badge-${j}`,
-        name: "Badge Name",
-        description: "Badge description",
-        icon: ["🎯", "📝", "✅", "🔥"][j % 4],
-        awardedAt: Date.now(),
-        criteria: ["issues_reported", "issues_verified", "accuracy", "streak"][
-          j % 4
-        ] as any,
-      })
-    ),
-    issuesReported: Math.floor(Math.random() * 50),
-    issuesVerified: Math.floor(Math.random() * 20),
-    correctReports: Math.floor(Math.random() * 15),
-    streakDays: Math.floor(Math.random() * 30),
-    leaderboardRank: i + 1,
-    createdAt: Date.now() - 86400000 * 30,
-    updatedAt: Date.now(),
-  }));
-};
+import { demoWorkflowService } from "@/lib/services";
 
 interface GamificationLeaderboardProps {
   currentUserId?: string;
@@ -47,47 +18,24 @@ export function GamificationLeaderboard({
   currentUserId = "CIT-100",
   limit = 10,
 }: GamificationLeaderboardProps) {
-  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
-  const [userProfile, setUserProfile] = useState<GamificationProfile | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [selectedProfile, setSelectedProfile] = useState<GamificationProfile | null>(null);
-
-  useEffect(() => {
-    setLoading(true);
-    const timer = setTimeout(() => {
-      const profiles = generateMockProfiles(20);
-      
-      // Sort by reputation then XP
-      const sorted = [...profiles].sort((a, b) => {
-        if (b.reputation !== a.reputation) return b.reputation - a.reputation;
-        return b.xp - a.xp;
-      });
-
-      // Create leaderboard entries
-      const entries: LeaderboardEntry[] = sorted.slice(0, limit).map((p, i) => ({
-        rank: i + 1,
-        citizenId: p.citizenId,
-        reputation: p.reputation,
-        xp: p.xp,
-        level: p.level,
-        issuesReported: p.issuesReported,
-        correctReports: p.correctReports,
-      }));
-
-      setLeaderboard(entries);
-
-      // Find user profile
-      const user = profiles.find((p) => p.citizenId === currentUserId);
-      setUserProfile(user || null);
-      if (user) {
-        setSelectedProfile(user);
-      }
-
-      setLoading(false);
-    }, 300);
-
-    return () => clearTimeout(timer);
-  }, [currentUserId, limit]);
+  const profiles = demoWorkflowService.getProfiles();
+  const leaderboard: LeaderboardEntry[] = [...profiles]
+    .sort((a, b) => {
+      if (b.reputation !== a.reputation) return b.reputation - a.reputation;
+      return b.xp - a.xp;
+    })
+    .slice(0, limit)
+    .map((p, i) => ({
+      rank: i + 1,
+      citizenId: p.citizenId,
+      reputation: p.reputation,
+      xp: p.xp,
+      level: p.level,
+      issuesReported: p.issuesReported,
+      correctReports: p.correctReports,
+    }));
+  const userProfile: GamificationProfile | null = profiles.find((p) => p.citizenId === currentUserId) ?? null;
+  const loading = false;
 
   if (loading) {
     return (

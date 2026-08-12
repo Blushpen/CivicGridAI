@@ -91,6 +91,8 @@ export interface GamificationProfile {
   correctReports: number; // Reports that led to resolution
   streakDays: number; // Consecutive days reporting
   leaderboardRank: number;
+  civicCoins: number; // In-app civic rewards currency
+  missionProgress: number; // Completion percentage for active mission
   createdAt: number;
   updatedAt: number;
 }

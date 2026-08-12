@@ -101,6 +101,8 @@ class GamificationEngine {
       correctReports: 0,
       streakDays: 0,
       leaderboardRank: 0,
+      civicCoins: 0,
+      missionProgress: 0,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -263,7 +265,14 @@ class GamificationEngine {
     let updated = { ...profile };
     updated = this.awardXP(updated, "missionCompleted");
     updated = this.awardReputation(updated, "missionCompleted");
+    updated = {
+      ...updated,
+      missionProgress: 100,
+      civicCoins: updated.civicCoins + 50,
+      updatedAt: Date.now(),
+    };
     return updated;
+  }
 
   /**
    * Update streak based on reporting activity

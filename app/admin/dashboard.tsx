@@ -5,97 +5,22 @@
  * Issue queue management, assignment, and status tracking
  */
 
-import React, { useState, useEffect } from "react";
-import type { Issue, Worker, AIClassificationResult, DuplicateDetectionResult } from "@/lib/types";
+import React, { useState } from "react";
+import type { Issue, Worker } from "@/lib/types";
+import { demoWorkflowService } from "@/lib/services";
 
-// Mock data generator for demo
-const generateMockIssues = (count: number): Issue[] => {
-  return Array.from({ length: count }, (_, i) => ({
-    id: `ISS-${String(1001 + i).padStart(4, "0")}`,
-    citizenId: `CIT-${String(100 + (i % 5)).padStart(3, "0")}`,
-    title: [
-      "Pothole on Main Street",
-      "Garbage accumulation near park",
-      "Water leaking from pipe",
-      "Streetlight not working",
-      "Flooded intersection",
-    ][i % 5],
-    description:
-      "This issue needs immediate attention and resolution by the appropriate department.",
-    location: {
-      latitude: 40.7128 + Math.random() * 0.01,
-      longitude: -74.006 + Math.random() * 0.01,
-      address: "Sample Location",
-    },
-    status: ["Reported", "Classified", "Assigned"][Math.floor(Math.random() * 3)] as any,
-    category: [
-      "Pothole",
-      "Garbage",
-      "Water Leak",
-      "Broken Streetlight",
-      "Flooding",
-    ][i % 5] as any,
-    severity: ["Low", "Medium", "High", "Critical"][Math.floor(Math.random() * 4)] as any,
-    evidence: [],
-    classification: {
-      category: [
-        "Pothole",
-        "Garbage",
-        "Water Leak",
-        "Broken Streetlight",
-        "Flooding",
-      ][i % 5] as any,
-      severity: ["Low", "Medium", "High", "Critical"][Math.floor(Math.random() * 4)] as any,
-      confidence: 0.7 + Math.random() * 0.25,
-      department: ["Roads", "Sanitation", "Water", "Electricity"][i % 4] as any,
-      reason: "Issue classified based on content analysis",
-    },
-    createdAt: Date.now() - Math.random() * 86400000,
-    updatedAt: Date.now() - Math.random() * 43200000,
-  }));
-};
-
-const generateMockWorkers = (count: number): Worker[] => {
-  return Array.from({ length: count }, (_, i) => ({
-    id: `WRK-${String(201 + i).padStart(3, "0")}`,
-    name: `Worker ${i + 1}`,
-    email: `worker${i + 1}@example.com`,
-    department: ["Roads", "Sanitation", "Water", "Electricity"][i % 4] as any,
-    status: ["available", "busy", "offline"][Math.floor(Math.random() * 3)] as any,
-    assignedIssues: Array.from(
-      { length: Math.floor(Math.random() * 3) },
-      (_, j) => `ISS-${String(1001 + j).padStart(4, "0")}`
-    ),
-    resolvedCount: Math.floor(Math.random() * 20),
-    avgResolutionTime: 4 + Math.random() * 20,
-    createdAt: Date.now() - 86400000 * 30,
-    updatedAt: Date.now(),
-  }));
-};
 
 interface AdminDashboardProps {
   onAssignIssue?: (issueId: string, workerId: string) => void;
 }
 
 export function AdminDashboard({ onAssignIssue }: AdminDashboardProps) {
-  const [issues, setIssues] = useState<Issue[]>([]);
-  const [workers, setWorkers] = useState<Worker[]>([]);
+  const [issues, setIssues] = useState<Issue[]>(() => demoWorkflowService.getIssues());
+  const [workers, setWorkers] = useState<Worker[]>(() => demoWorkflowService.getWorkers());
   const [selectedIssue, setSelectedIssue] = useState<Issue | null>(null);
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [sortBy, setSortBy] = useState<"severity" | "created" | "status">("severity");
-  const [loading, setLoading] = useState(true);
-
-  // Initialize with mock data
-  useEffect(() => {
-    setLoading(true);
-    // Simulate API call
-    const timer = setTimeout(() => {
-      setIssues(generateMockIssues(12));
-      setWorkers(generateMockWorkers(6));
-      setLoading(false);
-    }, 300);
-    return () => clearTimeout(timer);
-  }, []);
+  const loading = false;
 
   const filteredIssues = issues.filter((issue) => {
     if (filterStatus === "all") return true;
@@ -104,8 +29,10 @@ export function AdminDashboard({ onAssignIssue }: AdminDashboardProps) {
 
   const sortedIssues = [...filteredIssues].sort((a, b) => {
     if (sortBy === "severity") {
-      const severityOrder = { Critical: 0, High: 1, Medium: 2, Low: 3 };
-      return (severityOrder[a.severity as any] || 4) - (severityOrder[b.severity as any] || 4);
+      const severityOrder: Record<string, number> = { Critical: 0, High: 1, Medium: 2, Low: 3 };
+      const aSeverity = a.severity ?? "Low";
+      const bSeverity = b.severity ?? "Low";
+      return (severityOrder[aSeverity] ?? 4) - (severityOrder[bSeverity] ?? 4);
     }
     if (sortBy === "created") {
       return b.createdAt - a.createdAt;
@@ -115,11 +42,12 @@ export function AdminDashboard({ onAssignIssue }: AdminDashboardProps) {
 
   const handleAssign = (issueId: string, workerId: string) => {
     onAssignIssue?.(issueId, workerId);
-    setIssues(
-      issues.map((issue) =>
-        issue.id === issueId ? { ...issue, assignedTo: workerId, status: "Assigned" as any } : issue
-      )
-    );
+    const updatedIssue = demoWorkflowService.assignIssue(issueId, workerId);
+    if (updatedIssue) {
+      setIssues(demoWorkflowService.getIssues());
+      setSelectedIssue(updatedIssue);
+      setWorkers(demoWorkflowService.getWorkers());
+    }
   };
 
   const severityColor = (severity: string) => {
@@ -222,7 +150,7 @@ export function AdminDashboard({ onAssignIssue }: AdminDashboardProps) {
                     </select>
                     <select
                       value={sortBy}
-                      onChange={(e) => setSortBy(e.target.value as any)}
+                      onChange={(e) => setSortBy(e.target.value as "severity" | "created" | "status")}
                       className="px-3 py-2 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm"
                     >
                       <option value="severity">Severity</option>
