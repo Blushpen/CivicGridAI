@@ -21,8 +21,16 @@ This repository is bootstrapped from the CivicGrid AI Master AI Context and LT H
 ## Local development
 ```bash
 npm install
+cp .env.example .env
 npm run dev
 ```
+
+## Setup checklist
+1. Install dependencies with `npm install`
+2. Copy `.env.example` to `.env`
+3. Set `AI_PROVIDER=mock` for local development/demo
+4. Run `npm run build` to verify the app builds successfully
+5. Run `npm run dev` and confirm the landing page loads
 
 ## Security notes
 - Never commit secrets or environment files.
