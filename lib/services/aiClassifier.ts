@@ -9,7 +9,7 @@ import type {
   IssueCategory,
   SeverityLevel,
   Department,
-} from "./types";
+} from "../types";
 
 /** Configuration for AI provider */
 interface AIProviderConfig {

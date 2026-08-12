@@ -4,7 +4,7 @@
  * Uses location proximity and content similarity
  */
 
-import type { Issue, DuplicateDetectionResult } from "./types";
+import type { Issue, DuplicateDetectionResult } from "../types";
 
 /** Configuration for duplicate detection */
 interface DuplicateDetectionConfig {

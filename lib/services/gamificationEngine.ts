@@ -4,23 +4,26 @@
  * Rewards civic participation and accurate reporting
  */
 
-import type { GamificationProfile, Badge, LeaderboardEntry } from "./types";
+import type { GamificationProfile, Badge, LeaderboardEntry } from "../types";
 
 /** XP rewards for different actions */
 const XP_REWARDS = {
-  issueReported: 10,
-  issueVerified: 25,
-  correctReport: 50, // Issue led to resolution
-  streakBonus: 5, // Per consecutive day
-  badgeEarned: 15,
+  issueVerified: 20,      // Verified issue
+  qualityEvidence: 10,    // Quality evidence provided
+  communityVerification: 10, // Community verified
+  issueResolved: 30,      // Resolved issue
+  missionCompleted: 50,   // Mission completion
+  badgeEarned: 15,        // Badge earned
 };
 
 /** Reputation multipliers */
 const REPUTATION_MULTIPLIERS = {
-  issueReported: 1,
-  issueVerified: 3,
-  correctReport: 5,
-  badgeEarned: 2,
+  issueVerified: 2,       // Verified issue
+  qualityEvidence: 1,     // Quality evidence
+  communityVerification: 1, // Community verified
+  issueResolved: 3,       // Resolved issue
+  missionCompleted: 5,    // Mission completion
+  badgeEarned: 2,         // Badge earned
 };
 
 /** XP thresholds for levels */
@@ -133,7 +136,7 @@ class GamificationEngine {
   }
 
   /**
-   * Award reputation
+   * Award reputation (clamped to 0-100 range)
    */
   awardReputation(
     profile: GamificationProfile,
@@ -142,10 +145,11 @@ class GamificationEngine {
   ): GamificationProfile {
     const baseReputation = REPUTATION_MULTIPLIERS[action];
     const reputationGain = amount || baseReputation;
+    const newReputation = Math.max(0, Math.min(100, profile.reputation + reputationGain));
 
     return {
       ...profile,
-      reputation: profile.reputation + reputationGain,
+      reputation: newReputation,
       updatedAt: Date.now(),
     };
   }
@@ -176,6 +180,7 @@ class GamificationEngine {
 
   /**
    * Record issue reported
+   * NOTE: Do NOT award XP for just reporting - rewards are for verification, resolution, and quality
    */
   recordIssueReported(profile: GamificationProfile): GamificationProfile {
     let updated = {
@@ -183,11 +188,7 @@ class GamificationEngine {
       issuesReported: profile.issuesReported + 1,
     };
 
-    // Award XP and reputation
-    updated = this.awardXP(updated, "issueReported");
-    updated = this.awardReputation(updated, "issueReported");
-
-    // Check for badges
+    // Check for badges (milestones for contribution)
     if (updated.issuesReported === 1) {
       updated = this.awardBadge(updated, "first_report");
     } else if (updated.issuesReported === 5) {
@@ -200,44 +201,73 @@ class GamificationEngine {
   }
 
   /**
-   * Record issue verified and resolved
+   * Record issue verified (quality evidence provided)
+   * Caller should ensure the issue was actually verified before calling
    */
-  recordIssueVerified(profile: GamificationProfile, isCorrect: boolean = true): GamificationProfile {
+  recordIssueVerified(profile: GamificationProfile): GamificationProfile {
     let updated = {
       ...profile,
       issuesVerified: profile.issuesVerified + 1,
-      correctReports: isCorrect ? profile.correctReports + 1 : profile.correctReports,
     };
 
-    // Award XP and reputation
+    // Award XP for verified issue
     updated = this.awardXP(updated, "issueVerified");
     updated = this.awardReputation(updated, "issueVerified");
-
-    // Extra reward for correct report
-    if (isCorrect) {
-      updated = this.awardXP(updated, "correctReport");
-      updated = this.awardReputation(updated, "correctReport");
-    }
 
     // Check for badges
     if (updated.issuesVerified === 1) {
       updated = this.awardBadge(updated, "verified_citizen");
     }
 
-    // Check accuracy badge
-    if (updated.issuesVerified > 0) {
-      const accuracy = updated.correctReports / updated.issuesVerified;
-      if (accuracy === 1 && updated.issuesVerified >= 5) {
-        updated = this.awardBadge(updated, "accuracy_100");
-      }
-    }
+    return updated;
+  }
+
+  /**
+   * Record issue resolved
+   * Caller should ensure the issue was actually resolved before calling
+   */
+  recordIssueResolved(profile: GamificationProfile): GamificationProfile {
+    let updated = { ...profile };
+
+    // Award XP and reputation for resolution
+    updated = this.awardXP(updated, "issueResolved");
+    updated = this.awardReputation(updated, "issueResolved");
 
     return updated;
   }
 
   /**
+   * Award quality evidence bonus
+   */
+  awardQualityEvidenceBonus(profile: GamificationProfile): GamificationProfile {
+    let updated = { ...profile };
+    updated = this.awardXP(updated, "qualityEvidence");
+    updated = this.awardReputation(updated, "qualityEvidence");
+    return updated;
+  }
+
+  /**
+   * Award community verification bonus
+   */
+  awardCommunityVerificationBonus(profile: GamificationProfile): GamificationProfile {
+    let updated = { ...profile };
+    updated = this.awardXP(updated, "communityVerification");
+    updated = this.awardReputation(updated, "communityVerification");
+    return updated;
+  }
+
+  /**
+   * Record mission completion
+   */
+  recordMissionCompletion(profile: GamificationProfile): GamificationProfile {
+    let updated = { ...profile };
+    updated = this.awardXP(updated, "missionCompleted");
+    updated = this.awardReputation(updated, "missionCompleted");
+    return updated;
+
+  /**
    * Update streak based on reporting activity
-   * Should be called daily or per report
+   * Note: Streak tracking is for future expansion - not currently in MVP spec
    */
   updateStreak(profile: GamificationProfile, isActive: boolean): GamificationProfile {
     if (!isActive) {
@@ -249,9 +279,6 @@ class GamificationEngine {
       ...profile,
       streakDays: newStreak,
     };
-
-    // Award streak bonus XP
-    updated = this.awardXP(updated, "streakBonus", 5 * newStreak);
 
     // Check for streak badges
     if (newStreak === 7) {
