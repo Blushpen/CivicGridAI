@@ -12,6 +12,8 @@ import { IssueCategory } from "@/types";
 import { detectDuplicateIssue } from "@/lib/duplicateDetector";
 import { issues as existingIssues } from "@/services/mockDataService";
 import { createIssue } from "@/services/issueService";
+import { useNotification } from "@/components/notifications/NotificationProvider";
+import { validateReport } from "@/services/reportValidator";
 
 const categories: IssueCategory[] = [
   "Pothole",
@@ -38,6 +40,7 @@ export default function ReportPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
+  const notification = useNotification();
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -46,8 +49,9 @@ export default function ReportPage() {
     setPossibleDuplicate(null);
     setSuccess(null);
 
-    if (!description.trim()) {
-      setError("Description is required.");
+    const validation = validateReport({ category, description, latitude: lat, longitude: lon });
+    if (!validation.valid) {
+      setError(validation.errors.join(" "));
       return;
     }
 
@@ -94,6 +98,12 @@ export default function ReportPage() {
       });
 
       setSuccess(created.id);
+      // show in-app notification if available
+      try {
+        notification?.notify({ title: "Your civic issue has been reported successfully.", description: `Issue ID: ${created.id} · Status: ${created.status}`, variant: "success" });
+      } catch (e) {
+        // ignore
+      }
     } catch (e) {
       setError("Failed to create issue.");
     }
