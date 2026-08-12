@@ -9,6 +9,9 @@ import { TextArea } from "@/components/ui/TextArea";
 import { Toast } from "@/components/ui/Toast";
 import { AIClassifier, MockAIClassifierProvider } from "@/lib/aiClassifier";
 import { IssueCategory } from "@/types";
+import { detectDuplicateIssue } from "@/lib/duplicateDetector";
+import { issues as existingIssues } from "@/services/mockDataService";
+import { createIssue } from "@/services/issueService";
 
 const categories: IssueCategory[] = [
   "Pothole",
@@ -26,22 +29,76 @@ const classifier = new AIClassifier(new MockAIClassifierProvider());
 export default function ReportPage() {
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState<IssueCategory>("Pothole");
-  const [location, setLocation] = useState("");
-  const [classification, setClassification] = useState<null | string>(null);
+  const [lat, setLat] = useState(12.9716);
+  const [lon, setLon] = useState(77.5946);
+  const [locationDesc, setLocationDesc] = useState("");
+  const [image, setImage] = useState<File | null>(null);
+  const [classificationText, setClassificationText] = useState<string | null>(null);
+  const [possibleDuplicate, setPossibleDuplicate] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState<string | null>(null);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError("");
-    setClassification(null);
+    setClassificationText(null);
+    setPossibleDuplicate(null);
+    setSuccess(null);
 
-    if (!description.trim() || !location.trim()) {
-      setError("Please fill in all required fields.");
+    if (!description.trim()) {
+      setError("Description is required.");
       return;
     }
 
-    const result = await classifier.classifyIssue({ description, category });
-    setClassification(`${result.category} • ${result.severity} • ${result.department} (${Math.round(result.confidence * 100)}% confidence)`);
+    setLoading(true);
+
+    // Call AI classifier (integration point)
+    let aiResult = null;
+    try {
+      aiResult = await classifier.classifyIssue({ description, category });
+      const cat = aiResult?.category ?? "Unknown";
+      const sev = aiResult?.severity ?? "Low";
+      const dept = aiResult?.department ?? "Unassigned";
+      const conf = aiResult?.confidence ? Math.round(aiResult.confidence * 100) : 0;
+      setClassificationText(`${cat} • ${sev} • ${dept} (${conf}% confidence)`);
+    } catch (e) {
+      // fallback: continue without AI
+      aiResult = null;
+    }
+
+    // Run duplicate detection integration
+    try {
+      const candidate = detectDuplicateIssue(
+        { category, location: { latitude: lat, longitude: lon, description: locationDesc }, createdAt: new Date().toISOString(), status: "REPORTED" },
+        existingIssues
+      );
+      if (candidate.isDuplicate && candidate.duplicateIssue) {
+        setPossibleDuplicate(candidate.message ?? "Possible duplicate issue nearby.");
+        // allow user to continue; for MVP we continue automatically after warning
+      }
+    } catch (e) {
+      // ignore duplicate detection failures for now
+    }
+
+    // Create the issue via the shared service
+    try {
+      const created = await createIssue({
+        title: description.substring(0, 80),
+        category,
+        description,
+        reporterId: "user-citizen-1",
+        location: { latitude: lat, longitude: lon, description: locationDesc || "" },
+        image: image ? image.name : null,
+        ai: aiResult,
+      });
+
+      setSuccess(created.id);
+    } catch (e) {
+      setError("Failed to create issue.");
+    }
+
+    setLoading(false);
   };
 
   return (
@@ -58,6 +115,7 @@ export default function ReportPage() {
         <Card className="space-y-6">
           <form onSubmit={handleSubmit} className="space-y-6">
             {error ? <Toast title="Validation error" description={error} variant="error" /> : null}
+            {possibleDuplicate ? <Toast title="Possible duplicate" description={possibleDuplicate} variant="info" /> : null}
             <div className="grid gap-6 md:grid-cols-2">
               <div className="space-y-2">
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Issue category</label>
@@ -68,9 +126,15 @@ export default function ReportPage() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Location</label>
-                <Input value={location} onChange={(event) => setLocation(event.target.value)} placeholder="e.g. Ward 3, Market Road" />
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Location description</label>
+                <Input value={locationDesc} onChange={(event) => setLocationDesc(event.target.value)} placeholder="e.g. Ward 3, Market Road" />
               </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-3">
+              <Input type="number" step="0.0001" value={lat} onChange={(e) => setLat(Number(e.target.value))} />
+              <Input type="number" step="0.0001" value={lon} onChange={(e) => setLon(Number(e.target.value))} />
+              <Input type="file" onChange={(e) => setImage(e.target.files && e.target.files.length ? e.target.files[0] : null)} />
             </div>
 
             <div className="space-y-2">
@@ -78,14 +142,17 @@ export default function ReportPage() {
               <TextArea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Describe what you saw and where." />
             </div>
 
-            <Button type="submit">Classify issue</Button>
+            <div className="flex items-center gap-4">
+              <Button type="submit" disabled={loading}>{loading ? 'Submitting...' : 'Submit issue'}</Button>
+              {success ? <Toast title="Submitted" description={`Issue created: ${success}`} variant="success" /> : null}
+            </div>
           </form>
         </Card>
 
-        {classification ? (
+        {classificationText ? (
           <Card className="space-y-4">
             <h2 className="text-2xl font-semibold">AI Classification</h2>
-            <p className="text-sm leading-7 text-slate-700 dark:text-slate-300">{classification}</p>
+            <p className="text-sm leading-7 text-slate-700 dark:text-slate-300">{classificationText}</p>
           </Card>
         ) : null}
       </div>
