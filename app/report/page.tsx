@@ -14,6 +14,10 @@ import { issues as existingIssues } from "@/services/mockDataService";
 import { createIssue } from "@/services/issueService";
 import { useNotification } from "@/components/notifications/NotificationProvider";
 import { validateReport } from "@/services/reportValidator";
+import { LanguageService } from "@/services/languageService";
+import { VoiceInputService } from "@/services/voiceService";
+import { generateIssueSummary } from "@/services/issueSummaryService";
+import { createNotification, NotificationEventType } from "@/services/notificationService";
 
 const categories: IssueCategory[] = [
   "Pothole",
@@ -27,6 +31,8 @@ const categories: IssueCategory[] = [
 ];
 
 const classifier = new AIClassifier(new MockAIClassifierProvider());
+const languageService = new LanguageService();
+const voiceService = new VoiceInputService();
 
 export default function ReportPage() {
   const [description, setDescription] = useState("");
@@ -40,7 +46,18 @@ export default function ReportPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
+  const [voiceStatus, setVoiceStatus] = useState<string | null>(null);
   const notification = useNotification();
+
+  const handleVoiceInput = async () => {
+    const result = await voiceService.captureVoiceInput(description);
+    if (result.text) {
+      setDescription((prev) => (prev ? `${prev} ${result.text}` : result.text));
+      setVoiceStatus("Voice input captured and added to the report.");
+    } else {
+      setVoiceStatus(result.error ?? "Voice input unavailable. Please type your report.");
+    }
+  };
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -49,7 +66,9 @@ export default function ReportPage() {
     setPossibleDuplicate(null);
     setSuccess(null);
 
-    const validation = validateReport({ category, description, latitude: lat, longitude: lon });
+    const normalized = languageService.normalizeText(description);
+    const normalizedDescription = normalized.normalizedText || description;
+    const validation = validateReport({ category, description: normalizedDescription, latitude: lat, longitude: lon });
     if (!validation.valid) {
       setError(validation.errors.join(" "));
       return;
@@ -60,12 +79,18 @@ export default function ReportPage() {
     // Call AI classifier (integration point)
     let aiResult = null;
     try {
-      aiResult = await classifier.classifyIssue({ description, category });
+      aiResult = await classifier.classifyIssue({ description: normalizedDescription, category, voiceText: description.trim() || undefined });
       const cat = aiResult?.category ?? "Unknown";
       const sev = aiResult?.severity ?? "Low";
       const dept = aiResult?.department ?? "Unassigned";
       const conf = aiResult?.confidence ? Math.round(aiResult.confidence * 100) : 0;
-      setClassificationText(`${cat} • ${sev} • ${dept} (${conf}% confidence)`);
+      const summary = generateIssueSummary({
+        description: normalizedDescription,
+        category: cat,
+        severity: sev,
+        department: dept,
+      });
+      setClassificationText(`${cat} • ${sev} • ${dept} (${conf}% confidence) • ${summary.summary}`);
     } catch (e) {
       // fallback: continue without AI
       aiResult = null;
@@ -88,9 +113,9 @@ export default function ReportPage() {
     // Create the issue via the shared service
     try {
       const created = await createIssue({
-        title: description.substring(0, 80),
+        title: normalizedDescription.substring(0, 80),
         category,
-        description,
+        description: normalizedDescription,
         reporterId: "user-citizen-1",
         location: { latitude: lat, longitude: lon, description: locationDesc || "" },
         image: image ? image.name : null,
@@ -98,9 +123,15 @@ export default function ReportPage() {
       });
 
       setSuccess(created.id);
-      // show in-app notification if available
       try {
-        notification?.notify({ title: "Your civic issue has been reported successfully.", description: `Issue ID: ${created.id} · Status: ${created.status}`, variant: "success" });
+        const inAppNotification = createNotification({
+          eventType: NotificationEventType.ISSUE_SUBMITTED,
+          issueId: created.id,
+          title: "Issue submitted successfully",
+          description: `Issue ID: ${created.id} · ${generateIssueSummary({ description: normalizedDescription, category: aiResult?.category ?? category, severity: aiResult?.severity ?? "Medium", department: aiResult?.department ?? "Unassigned" }).summary}`,
+          variant: "success",
+        });
+        notification?.notify({ title: inAppNotification.title, description: inAppNotification.description, variant: inAppNotification.variant });
       } catch (e) {
         // ignore
       }
@@ -128,34 +159,45 @@ export default function ReportPage() {
             {possibleDuplicate ? <Toast title="Possible duplicate" description={possibleDuplicate} variant="info" /> : null}
             <div className="grid gap-6 md:grid-cols-2">
               <div className="space-y-2">
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Issue category</label>
-                <Select value={category} onChange={(event) => setCategory(event.target.value as IssueCategory)}>
+                <label htmlFor="issue-category" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Issue category</label>
+                <Select id="issue-category" aria-label="Issue category" value={category} onChange={(event) => setCategory(event.target.value as IssueCategory)}>
                   {categories.map((option) => (
                     <option key={option} value={option}>{option}</option>
                   ))}
                 </Select>
               </div>
               <div className="space-y-2">
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Location description</label>
-                <Input value={locationDesc} onChange={(event) => setLocationDesc(event.target.value)} placeholder="e.g. Ward 3, Market Road" />
+                <label htmlFor="location-description" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Location description</label>
+                <Input id="location-description" aria-label="Location description" value={locationDesc} onChange={(event) => setLocationDesc(event.target.value)} placeholder="e.g. Ward 3, Market Road" />
               </div>
             </div>
 
             <div className="grid gap-4 md:grid-cols-3">
-              <Input type="number" step="0.0001" value={lat} onChange={(e) => setLat(Number(e.target.value))} />
-              <Input type="number" step="0.0001" value={lon} onChange={(e) => setLon(Number(e.target.value))} />
-              <Input type="file" onChange={(e) => setImage(e.target.files && e.target.files.length ? e.target.files[0] : null)} />
+              <div className="space-y-2">
+                <label htmlFor="latitude" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Latitude</label>
+                <Input id="latitude" aria-label="Latitude" type="number" step="0.0001" value={lat} onChange={(e) => setLat(Number(e.target.value))} />
+              </div>
+              <div className="space-y-2">
+                <label htmlFor="longitude" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Longitude</label>
+                <Input id="longitude" aria-label="Longitude" type="number" step="0.0001" value={lon} onChange={(e) => setLon(Number(e.target.value))} />
+              </div>
+              <div className="space-y-2">
+                <label htmlFor="issue-photo" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Upload evidence</label>
+                <Input id="issue-photo" aria-label="Upload issue evidence" type="file" onChange={(e) => setImage(e.target.files && e.target.files.length ? e.target.files[0] : null)} />
+              </div>
             </div>
 
             <div className="space-y-2">
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Description</label>
-              <TextArea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Describe what you saw and where." />
+              <label htmlFor="issue-description" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Description</label>
+              <TextArea id="issue-description" aria-label="Issue description" value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Describe what you saw and where." />
             </div>
 
-            <div className="flex items-center gap-4">
+            <div className="flex flex-wrap items-center gap-4">
+              <Button type="button" variant="secondary" className="bg-slate-200 text-slate-900 hover:bg-slate-300" onClick={handleVoiceInput}>Use voice input</Button>
               <Button type="submit" disabled={loading}>{loading ? 'Submitting...' : 'Submit issue'}</Button>
               {success ? <Toast title="Submitted" description={`Issue created: ${success}`} variant="success" /> : null}
             </div>
+            {voiceStatus ? <p className="text-sm text-slate-600 dark:text-slate-300">{voiceStatus}</p> : null}
           </form>
         </Card>
 
