@@ -226,6 +226,37 @@ const PROFILE_SEED: GamificationProfile[] = [
 ];
 
 let issueStore: Issue[] = ISSUE_SEED.map((issue) => ({ ...issue }));
+// Persist demo issue store across client navigations (client-only)
+const LOCAL_KEY = "civicgrid_demo_issue_store";
+
+function loadIssueStoreFromLocal() {
+  try {
+    if (typeof window !== "undefined" && window.localStorage) {
+      const raw = window.localStorage.getItem(LOCAL_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as Issue[];
+        if (Array.isArray(parsed)) {
+          issueStore = parsed;
+        }
+      }
+    }
+  } catch (e) {
+    // ignore localStorage failures
+  }
+}
+
+function saveIssueStoreToLocal() {
+  try {
+    if (typeof window !== "undefined" && window.localStorage) {
+      window.localStorage.setItem(LOCAL_KEY, JSON.stringify(issueStore));
+    }
+  } catch (e) {
+    // ignore save failures
+  }
+}
+
+// Attempt to hydrate from local storage on module load (client only)
+loadIssueStoreFromLocal();
 const workerStore: Worker[] = WORKER_SEED.map((worker) => ({ ...worker }));
 let profileStore: GamificationProfile[] = PROFILE_SEED.map((profile) => ({ ...profile }));
 
@@ -264,7 +295,7 @@ export const demoWorkflowService = {
       worker.assignedIssues = [...new Set([...worker.assignedIssues, issueId])];
       worker.updatedAt = Date.now();
     }
-
+    saveIssueStoreToLocal();
     return { ...issue };
   },
 
@@ -286,6 +317,7 @@ export const demoWorkflowService = {
         ? profileStore.map((entry) => (entry.citizenId === issue.citizenId ? updatedProfile : entry))
         : [...profileStore, updatedProfile];
     }
+    saveIssueStoreToLocal();
 
     return { ...issue };
   },
@@ -333,6 +365,8 @@ export const demoWorkflowService = {
     const duplicate = duplicateDetector.checkDuplicate(issue, issueStore);
     issueStore = [issue, ...issueStore];
 
+    saveIssueStoreToLocal();
+
     const profile = profileStore.find((entry) => entry.citizenId === input.citizenId) || gamificationEngine.createProfile(input.citizenId);
     const updatedProfile = gamificationEngine.recordIssueReported(profile);
     profileStore = profileStore.some((entry) => entry.citizenId === input.citizenId)
@@ -344,3 +378,12 @@ export const demoWorkflowService = {
 };
 
 export default demoWorkflowService;
+
+// Expose service on window for debugging / E2E test helpers (client-only)
+try {
+  if (typeof window !== "undefined") {
+    (window as any).demoWorkflowService = demoWorkflowService;
+  }
+} catch (e) {
+  // ignore
+}

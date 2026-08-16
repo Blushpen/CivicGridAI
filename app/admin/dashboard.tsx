@@ -8,6 +8,7 @@
 import React, { useState } from "react";
 import type { Issue, Worker } from "@/lib/types";
 import { demoWorkflowService } from "@/lib/services";
+import { issues as mockIssues } from "@/services/mockDataService";
 
 
 interface AdminDashboardProps {
@@ -15,7 +16,16 @@ interface AdminDashboardProps {
 }
 
 export function AdminDashboard({ onAssignIssue }: AdminDashboardProps) {
-  const [issues, setIssues] = useState<Issue[]>(() => demoWorkflowService.getIssues());
+  const [issues, setIssues] = useState<Issue[]>(() => {
+    // Merge demo workflow issues with mockDataService issues (dedupe by id)
+    const demo = demoWorkflowService.getIssues();
+    const combined = [...demo, ...mockIssues];
+    const map = new Map<string, Issue>();
+    for (const i of combined) {
+      if (!map.has(i.id)) map.set(i.id, i);
+    }
+    return Array.from(map.values()).sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt));
+  });
   const [workers, setWorkers] = useState<Worker[]>(() => demoWorkflowService.getWorkers());
   const [selectedIssue, setSelectedIssue] = useState<Issue | null>(null);
   const [filterStatus, setFilterStatus] = useState<string>("all");
